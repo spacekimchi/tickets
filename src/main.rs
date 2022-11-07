@@ -8,19 +8,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("error: {err}");
         process::exit(1);
     });
-
+    let content = content(env::args());
     fs::create_dir_all(&target_path)?;
+
     let mut entries = fs::read_dir(&target_path)?
         .map(|res| res.map(|e| e.path()))
         .collect::<Result<Vec<_>, io::Error>>()?;
     entries.sort();
     let name = get_next_file_name(&entries)?;
 
-    let template = format!("ticket:{}\nresponsible:jin\nstatus:open\n================\n", name).to_string();
     let mut file = fs::File::create(format!("{}/{}", target_path, name))?;
+    let template = format!("ticket:{}\nresponsible:jin\nstatus:open\n================\n{}", name, content).to_string();
     file.write_all(&template.as_bytes())?;
 
     Ok(())
+}
+
+fn content(mut args: impl Iterator<Item = String>) -> String {
+    // skip executable
+    args.next();
+
+    let file_path = args.next().unwrap_or("".to_string());
+    file_path
 }
 
 fn get_next_file_name(dirs: &Vec<std::path::PathBuf>) -> Result<String, &'static str> {
