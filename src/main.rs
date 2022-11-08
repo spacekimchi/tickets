@@ -18,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let name = get_next_file_name(&entries)?;
 
     let mut file = fs::File::create(format!("{}/{}", target_path, name))?;
-    let template = format!("ticket:{}\nresponsible:jin\nstatus:open\n================\n{}", name, content).to_string();
+    let template = format!("ticket:{}\nresponsible:jin\nstatus:open\n================\n{}\n", name, content).to_string();
     file.write_all(&template.as_bytes())?;
 
     Ok(())
