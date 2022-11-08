@@ -34,7 +34,6 @@ fn content(mut args: impl Iterator<Item = String>) -> String {
 
 fn get_next_file_name(dirs: &Vec<std::path::PathBuf>) -> Result<String, &'static str> {
     if dirs.len() == 0 {
-        println!("dirs len is zero");
         return Ok("0".to_string());
     }
     let last_ticket = match dirs.last() {
