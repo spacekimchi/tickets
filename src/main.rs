@@ -7,13 +7,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let project_name = get_project_name()?;
     let content = content(env::args());
     let project_tickets_path = format!("{}/{}", ticket_path, project_name);
+    fs::create_dir_all(&project_tickets_path)?;
     let mut entries = fs::read_dir(&project_tickets_path)?
         .map(|res| res.map(|e| e.path()))
         .collect::<Result<Vec<_>, io::Error>>()?;
     entries.sort();
     let num = get_next_file_name(&entries)?;
     let mut file = fs::File::create(format!("{}/{}", project_tickets_path, num))?;
-    let template = format!("ticket:{}\nstatus:open\n================\n{}\n", num, content).to_string();
+    let template = format!("ticket:{}\nstatus:open\n================\n{}\n\n", num, content).to_string();
     file.write_all(&template.as_bytes())?;
     Ok(())
 }
