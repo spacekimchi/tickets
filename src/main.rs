@@ -1,12 +1,15 @@
 use std::env;
-use std::{fs, io};
+use std::collections::HashMap;
+use std::{fs, io::{self, BufRead}};
 use std::io::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ticket_path = ticket_path()?;
-    let project_name = get_project_name()?;
+    let config = HashMap::new();
+    let default_name = get_project_name()?;
+    get_config(&default_name, &ticket_path, &config)?;
     let content = content(env::args());
-    let project_tickets_path = format!("{}/{}", ticket_path, project_name);
+    let project_tickets_path = format!("{}/{}", ticket_path, config.get("project_name").unwrap_or(&&default_name[..]));
     fs::create_dir_all(&project_tickets_path)?;
     let mut entries = fs::read_dir(&project_tickets_path)?
         .map(|res| res.map(|e| e.path()))
@@ -17,6 +20,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let template = format!("ticket:{}\nstatus:open\n================\n{}\n\n", num, content).to_string();
     file.write_all(&template.as_bytes())?;
     Ok(())
+}
+
+fn get_config(default_name: &str, ticket_path: &str, config: &HashMap<&str, &str>) -> Result<(), Box<dyn std::error::Error>> {
+    if !std::path::Path::new(".tickets_config").exists() {
+        let mut user_input = String::new();
+        while user_input.len() == 0 {
+            print!("Enter a name for the project(no spaces please [default): ");
+            io::stdin().read_line(&mut user_input)?;
+            user_input = user_input.split_whitespace().next().unwrap_or("").trim().to_string();
+        }
+        let mut f = fs::File::create(".tickets_config")?;
+        write!(f, "project_name:{user_input}");
+        config.insert("project_name", &user_input.to_string());
+        return Ok(());
+    }
+    let mut file = fs::File::open(".tickets_config")?;
+    if let Ok(lines) = read_lines(".tickets_config") {
+        for line in lines {
+            if let Ok(s) = line {
+                // set config map
+                let (k, v) = s.split_once(":").unwrap();
+                config.insert(k, v);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<fs::File>>>
+where P: AsRef<std::path::Path>, {
+    let file = fs::File::open(filename)?;
+    Ok(io::BufReader::new(file).lines())
 }
 
 fn get_project_name() -> Result<String, &'static str> {
