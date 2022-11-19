@@ -17,10 +17,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             _ => return Ok(())
         };
     }
-
     let ticket_path = ticket_path()?; /* $HOME/.tickets/ */
     let mut config = HashMap::new();
-    get_config(&default_name, &ticket_path, &mut config)?;
+    set_config(&mut config)?;
 
     let content = content(env::args()); /* content body for the ticket */
     let project_tickets_path = format!("{}/{}", ticket_path, config.get("project_name").unwrap_or(&default_name));
@@ -30,6 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect::<Result<Vec<_>, io::Error>>()?;
     entries.sort();
     let num = get_next_file_name(&entries)?;
+
     let mut file = fs::File::create(format!("{}/{}", project_tickets_path, num))?;
     let template = format!("ticket:{}\nstatus:open\n================\n{}\n\n", num, content).to_string();
     file.write_all(&template.as_bytes())?;
@@ -47,19 +47,7 @@ fn create_config(default_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn get_config(default_name: &str, ticket_path: &str, config: &mut HashMap<String, String>) -> Result<(), Box<dyn std::error::Error>> {
-    if !Path::new(".tickets_config").exists() {
-        let mut user_input = String::new();
-        while user_input.len() == 0 {
-            print!("Enter a name for the project(no spaces please): ");
-            io::stdin().read_line(&mut user_input)?;
-            user_input = user_input.split_whitespace().next().unwrap_or("").trim().to_string();
-        }
-        let mut f = fs::File::create(".tickets_config")?;
-        write!(f, "project_name:{user_input}")?;
-        config.insert("project_name".to_string(), user_input.to_string());
-        return Ok(());
-    }
+fn set_config(config: &mut HashMap<String, String>) -> Result<(), Box<dyn std::error::Error>> {
     if let Ok(lines) = read_lines(".tickets_config") {
         for line in lines {
             if let Ok(s) = line {
@@ -69,7 +57,6 @@ fn get_config(default_name: &str, ticket_path: &str, config: &mut HashMap<String
             }
         }
     }
-
     Ok(())
 }
 
@@ -94,7 +81,7 @@ fn get_project_name() -> Result<String, &'static str> {
 fn content(mut args: impl Iterator<Item = String>) -> String {
     // skip executable
     args.next();
-    args.next().unwrap_or("".to_string())
+    args.next().unwrap_or("Ticket description should go here".to_string())
 }
 
 fn get_next_file_name(dirs: &Vec<PathBuf>) -> Result<String, &'static str> {
