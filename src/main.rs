@@ -1,12 +1,29 @@
 use std::env;
-use std::{fs, io};
+use std::collections::HashMap;
+use std::{fs, io::{self, BufRead}};
 use std::io::prelude::*;
+use std::path::{PathBuf, Path};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ticket_path = ticket_path()?;
-    let project_name = get_project_name()?;
-    let content = content(env::args());
-    let project_tickets_path = format!("{}/{}", ticket_path, project_name);
+    let default_name = get_project_name()?;
+    if !Path::new(".tickets_config").exists() {
+        print!("Config file not found. Would you like to create one? [Y/n]: ");
+        io::stdout().flush().unwrap();
+        let mut user_input = String::new();
+        io::stdin().read_line(&mut user_input)?;
+        match user_input.as_str().trim() {
+            "Y" => create_config(&default_name)?,
+            "y" => create_config(&default_name)?,
+            _ => return Ok(())
+        };
+    }
+
+    let ticket_path = ticket_path()?; /* $HOME/.tickets/ */
+    let mut config = HashMap::new();
+    get_config(&default_name, &ticket_path, &mut config)?;
+
+    let content = content(env::args()); /* content body for the ticket */
+    let project_tickets_path = format!("{}/{}", ticket_path, config.get("project_name").unwrap_or(&default_name));
     fs::create_dir_all(&project_tickets_path)?;
     let mut entries = fs::read_dir(&project_tickets_path)?
         .map(|res| res.map(|e| e.path()))
@@ -17,6 +34,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let template = format!("ticket:{}\nstatus:open\n================\n{}\n\n", num, content).to_string();
     file.write_all(&template.as_bytes())?;
     Ok(())
+}
+
+fn create_config(default_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let mut user_input = String::new();
+    print!("Enter a name for the project (default: {default_name}): ");
+    io::stdout().flush().unwrap();
+    io::stdin().read_line(&mut user_input)?;
+    user_input = user_input.split_whitespace().next().unwrap_or(default_name).trim().to_string();
+    let mut f = fs::File::create(".tickets_config")?;
+    writeln!(f, "project_name:{user_input}")?;
+    Ok(())
+}
+
+fn get_config(default_name: &str, ticket_path: &str, config: &mut HashMap<String, String>) -> Result<(), Box<dyn std::error::Error>> {
+    if !Path::new(".tickets_config").exists() {
+        let mut user_input = String::new();
+        while user_input.len() == 0 {
+            print!("Enter a name for the project(no spaces please): ");
+            io::stdin().read_line(&mut user_input)?;
+            user_input = user_input.split_whitespace().next().unwrap_or("").trim().to_string();
+        }
+        let mut f = fs::File::create(".tickets_config")?;
+        write!(f, "project_name:{user_input}")?;
+        config.insert("project_name".to_string(), user_input.to_string());
+        return Ok(());
+    }
+    if let Ok(lines) = read_lines(".tickets_config") {
+        for line in lines {
+            if let Ok(s) = line {
+                // set config map
+                let (k, v) = s.split_once(":").unwrap();
+                config.insert(k.to_string(), v.to_string());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<fs::File>>>
+where P: AsRef<Path>, {
+    let file = fs::File::open(filename)?;
+    Ok(io::BufReader::new(file).lines())
 }
 
 fn get_project_name() -> Result<String, &'static str> {
@@ -37,7 +97,7 @@ fn content(mut args: impl Iterator<Item = String>) -> String {
     args.next().unwrap_or("".to_string())
 }
 
-fn get_next_file_name(dirs: &Vec<std::path::PathBuf>) -> Result<String, &'static str> {
+fn get_next_file_name(dirs: &Vec<PathBuf>) -> Result<String, &'static str> {
     if dirs.len() == 0 {
         return Ok("0".to_string());
     }
