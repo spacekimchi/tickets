@@ -4,6 +4,12 @@ use std::{fs, io::{self, BufRead}};
 use std::io::prelude::*;
 use std::path::{PathBuf, Path};
 
+pub struct Config {
+    pub query: String,
+    pub file_path: String,
+    pub ignore_case: bool,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let default_name = get_project_name()?;
     if !Path::new(".tickets_config").exists() {
@@ -11,8 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         io::stdout().flush().unwrap();
         let mut user_input = String::new();
         io::stdin().read_line(&mut user_input)?;
-        match user_input.as_str().trim() {
-            "Y" => create_config(&default_name)?,
+        match user_input.trim().to_lowercase().as_str() {
             "y" => create_config(&default_name)?,
             _ => return Ok(())
         };
@@ -34,6 +39,93 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let template = format!("ticket:{}\nstatus:open\n================\n{}\n\n", num, content).to_string();
     file.write_all(&template.as_bytes())?;
     Ok(())
+}
+
+fn get_command(mut args: impl Iterator<Item = String>, config: &HashMap<String, String>) -> Result<Config, &'static str> {
+    // skip executable
+    args.next();
+
+    println!("{:#?}", args.next());
+
+
+    let command = match args.next() {
+        Some(arg) => arg,
+        None => return Err("No action found")
+    };
+
+    match command {
+        "list" => list_tickets(args.,
+        "new" => new_ticket(),
+        "close" => close_ticket(),
+        "open" => open_ticket(),
+        "complete" => complete_ticket(),
+        "edit" => edit_ticket(),
+        "help" => print_help(),
+        _ => return Err("No matching command")
+    }
+
+    let query = match args.next() {
+        Some(arg) => arg,
+        None => return Err("Didn't get a query string"),
+    };
+
+    let file_path = match args.next() {
+        Some(arg) => arg,
+        None => return Err("Didn't get a file path"),
+    };
+
+    let ignore_case = std::env::var("IGNORE_CASE").is_ok();
+    Ok(Config {
+        query,
+        file_path,
+        ignore_case,
+    })
+}
+
+fn run_command(command: &str, mut args: impl Iterator<Item = String>, config: &HashMap<String, String>) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
+        "list" => list_tickets(&mut args, &config)?,
+        "new" => new_ticket(),
+        "close" => close_ticket(),
+        "open" => open_ticket(),
+        "complete" => complete_ticket(),
+        "edit" => edit_ticket(),
+        "help" => print_help(),
+        _ => println!("no command found")
+    }
+    Ok(())
+}
+
+fn list_tickets(mut args: impl Iterator<Item = String>, config: &HashMap<String, String>) -> Result<(), Box<dyn std::error::Error>> {
+    let entries = fs::read_dir(&config.get("project_ticket").unwrap())?
+        .map(|res| res.map(|e| e.path()))
+        .collect::<Result<Vec<_>, io::Error>>()?;
+    println!("{:#?}", entries);
+    Ok(())
+}
+
+fn new_ticket() {
+
+}
+
+fn close_ticket() {
+
+}
+
+fn open_ticket() {
+
+}
+
+fn complete_ticket() {
+
+}
+
+fn edit_ticket() {
+
+}
+
+fn print_help() {
+
 }
 
 fn create_config(default_name: &str) -> Result<(), Box<dyn std::error::Error>> {
