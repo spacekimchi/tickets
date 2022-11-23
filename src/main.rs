@@ -2,12 +2,32 @@ use std::env;
 use std::collections::HashMap;
 use std::{fs, io::{self, BufRead}};
 use std::io::prelude::*;
-use std::path::{PathBuf, Path};
+use std::path::Path;
+use std::error::Error;
+use std::fmt;
+use std::process::Command;
 
-pub struct Config {
-    pub query: String,
-    pub file_path: String,
-    pub ignore_case: bool,
+#[derive(Debug)]
+struct MyError {
+    details: String
+}
+
+impl MyError {
+    fn new(msg: &str) -> MyError {
+        MyError{details: msg.to_string()}
+    }
+}
+
+impl fmt::Display for MyError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f,"{}",self.details)
+    }
+}
+
+impl Error for MyError {
+    fn description(&self) -> &str {
+        &self.details
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -22,110 +42,120 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             _ => return Ok(())
         };
     }
-    let ticket_path = ticket_path()?; /* $HOME/.tickets/ */
-    let mut config = HashMap::new();
-    set_config(&mut config)?;
-
-    let content = content(env::args()); /* content body for the ticket */
-    let project_tickets_path = format!("{}/{}", ticket_path, config.get("project_name").unwrap_or(&default_name));
-    fs::create_dir_all(&project_tickets_path)?;
-    let mut entries = fs::read_dir(&project_tickets_path)?
-        .map(|res| res.map(|e| e.path()))
-        .collect::<Result<Vec<_>, io::Error>>()?;
-    entries.sort();
-    let num = get_next_file_name(&entries)?;
-
-    let mut file = fs::File::create(format!("{}/{}", project_tickets_path, num))?;
-    let template = format!("ticket:{}\nstatus:open\n================\n{}\n\n", num, content).to_string();
-    file.write_all(&template.as_bytes())?;
+    let mut args = env::args();
+    let command = get_command(&mut args)?;
+    run_command(&command, &mut args)?;
     Ok(())
 }
 
-fn get_command(mut args: impl Iterator<Item = String>, config: &HashMap<String, String>) -> Result<Config, &'static str> {
+fn get_command(mut args: impl Iterator<Item = String>) -> Result<String, &'static str> {
     // skip executable
     args.next();
 
-    println!("{:#?}", args.next());
-
-
-    let command = match args.next() {
-        Some(arg) => arg,
+    match args.next() {
+        Some(arg) => Ok(arg),
         None => return Err("No action found")
-    };
-
-    match command {
-        "list" => list_tickets(args.,
-        "new" => new_ticket(),
-        "close" => close_ticket(),
-        "open" => open_ticket(),
-        "complete" => complete_ticket(),
-        "edit" => edit_ticket(),
-        "help" => print_help(),
-        _ => return Err("No matching command")
     }
-
-    let query = match args.next() {
-        Some(arg) => arg,
-        None => return Err("Didn't get a query string"),
-    };
-
-    let file_path = match args.next() {
-        Some(arg) => arg,
-        None => return Err("Didn't get a file path"),
-    };
-
-    let ignore_case = std::env::var("IGNORE_CASE").is_ok();
-    Ok(Config {
-        query,
-        file_path,
-        ignore_case,
-    })
 }
 
-fn run_command(command: &str, mut args: impl Iterator<Item = String>, config: &HashMap<String, String>) -> Result<(), Box<dyn std::error::Error>> {
+fn run_command(command: &str, args: impl Iterator<Item = String>) -> Result<(), Box<dyn std::error::Error>> {
     match command {
-        "list" => list_tickets(&mut args, &config)?,
-        "new" => new_ticket(),
-        "close" => close_ticket(),
-        "open" => open_ticket(),
-        "complete" => complete_ticket(),
-        "edit" => edit_ticket(),
+        "list" => list_tickets()?,
+        "new" => new_ticket(args)?,
+        "close" => edit_tickets_status(args, "closed")?,
+        "open" => edit_tickets_status(args, "open")?,
+        "complete" => edit_tickets_status(args, "complete")?,
+        "start" => edit_tickets_status(args, "in_progress")?,
+        "edit" => edit_ticket(args)?,
         "help" => print_help(),
-        _ => println!("no command found")
+        _ => return Err(Box::new(MyError::new(format!("Unrecognized command: {}", command).as_str())))
     }
     Ok(())
 }
 
-fn list_tickets(mut args: impl Iterator<Item = String>, config: &HashMap<String, String>) -> Result<(), Box<dyn std::error::Error>> {
-    let entries = fs::read_dir(&config.get("project_ticket").unwrap())?
+fn list_tickets() -> Result<(), Box<dyn std::error::Error>> {
+    let config = get_config()?;
+    let project_tickets_path = format!("{}/{}", ticket_path()?, config.get("project_name").unwrap_or(&get_project_name()?));
+    fs::create_dir_all(&project_tickets_path)?;
+    let entries = fs::read_dir(&project_tickets_path)?
         .map(|res| res.map(|e| e.path()))
         .collect::<Result<Vec<_>, io::Error>>()?;
     println!("{:#?}", entries);
     Ok(())
 }
 
-fn new_ticket() {
+fn get_next_file_name(project_tickets_path: &str) -> Result<String, Box<dyn Error>> {
+    fs::create_dir_all(&project_tickets_path)?;
+    let mut entries = fs::read_dir(&project_tickets_path)?
+        .map(|res| res.map(|e| e.path()))
+        .collect::<Result<Vec<_>, io::Error>>()?;
+    entries.sort();
 
+    if entries.len() == 0 {
+        return Ok("0".to_string());
+    }
+    let last_ticket = match entries.last() {
+        Some(num) => num.file_name(),
+        None => return Err(Box::new(MyError::new("borked"))),
+    };
+    let last_ticket_number = match last_ticket {
+        Some(val) => val.to_string_lossy().to_string(),
+        None => "0".to_string(),
+    };
+    let name: u32 = last_ticket_number.parse().unwrap_or(0) + 1;
+    Ok(name.to_string())
 }
 
-fn close_ticket() {
-
+fn new_ticket(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn Error>> {
+    let config = get_config()?;
+    let project_tickets_path = format!("{}/{}", ticket_path()?, config.get("project_name").unwrap_or(&get_project_name()?));
+    let num = get_next_file_name(&project_tickets_path)?;
+    let mut file = fs::File::create(format!("{}/{}", project_tickets_path, num))?;
+    // TODO: look for a replacement for new lines. Something like writeln!
+    let template = format!("ticket:{}\nstatus:open\n================\n{}\n\n", num, get_content(&mut args)).to_string();
+    file.write_all(&template.as_bytes())?;
+    Ok(())
 }
 
-fn open_ticket() {
-
+fn edit_tickets_status(args: impl Iterator<Item = String>, ticket_status: &str) -> Result<(), Box<dyn Error>> {
+    let config = get_config()?;
+    let project_tickets_path = format!("{}/{}", ticket_path()?, config.get("project_name").unwrap_or(&get_project_name()?));
+    let files: Vec<String> = args.map(|arg| format!("{}/{}", project_tickets_path, arg)).collect();
+    let output = Command::new("sed")
+        .arg("-i")
+        .arg(format!("s/^status:\\S*$/status:{}/", ticket_status))
+        .args(files)
+        .spawn()?;
+    println!("edit_tickets_status output: {:#?}", output);
+    Ok(())
 }
 
-fn complete_ticket() {
-
-}
-
-fn edit_ticket() {
-
+fn edit_ticket(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn Error>> {
+    let config = get_config()?;
+    let project_tickets_path = format!("{}/{}", ticket_path()?, config.get("project_name").unwrap_or(&get_project_name()?));
+    let file = match args.next() {
+        Some(arg) => format!("{}/{}", project_tickets_path, arg),
+        None => return Err(Box::new(MyError::new("No filename found")))
+    };
+    let output = Command::new("vim")
+        .arg(file)
+        .status()?;
+    println!("edit_ticket output: {:#?}", output);
+    Ok(())
 }
 
 fn print_help() {
-
+    println!("Tickets will create a .tickets_config file that will hold a project_name, which will be the directory name");
+    println!("of the project in the ${{HOME}}/{{project_name}}/ directory.");
+    println!("Commands you can run include:");
+    println!("list                      Lists tickets for this project");
+    println!("new                       Creates a new ticket");
+    println!("close                     Marks a ticket as closed");
+    println!("open                      Marks a ticket as open");
+    println!("complete                  Marks a ticket as complete");
+    println!("start                     Marks a ticket as in_progress");
+    println!("edit                      Opens a ticket in vim");
+    println!("help                      Print this menu");
 }
 
 fn create_config(default_name: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -139,7 +169,8 @@ fn create_config(default_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn set_config(config: &mut HashMap<String, String>) -> Result<(), Box<dyn std::error::Error>> {
+fn get_config() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
+    let mut config: HashMap<String, String> = HashMap::new();
     if let Ok(lines) = read_lines(".tickets_config") {
         for line in lines {
             if let Ok(s) = line {
@@ -149,7 +180,7 @@ fn set_config(config: &mut HashMap<String, String>) -> Result<(), Box<dyn std::e
             }
         }
     }
-    Ok(())
+    Ok(config)
 }
 
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<fs::File>>>
@@ -170,26 +201,8 @@ fn get_project_name() -> Result<String, &'static str> {
     Ok(project_name.to_string_lossy().to_string())
 }
 
-fn content(mut args: impl Iterator<Item = String>) -> String {
-    // skip executable
-    args.next();
+fn get_content(mut args: impl Iterator<Item = String>) -> String {
     args.next().unwrap_or("Ticket description should go here".to_string())
-}
-
-fn get_next_file_name(dirs: &Vec<PathBuf>) -> Result<String, &'static str> {
-    if dirs.len() == 0 {
-        return Ok("0".to_string());
-    }
-    let last_ticket = match dirs.last() {
-        Some(num) => num.file_name(),
-        None => return Err("Unable to get next file name"),
-    };
-    let last_ticket_number = match last_ticket {
-        Some(val) => val.to_string_lossy().to_string(),
-        None => "0".to_string(),
-    };
-    let name: u32 = last_ticket_number.parse().unwrap_or(0) + 1;
-    Ok(name.to_string())
 }
 
 fn ticket_path() -> Result<String, &'static str> {
