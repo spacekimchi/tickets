@@ -43,9 +43,52 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
     }
     let mut args = env::args();
+    // get first arg from list in run_command
     let command = get_command(&mut args)?;
     run_command(&command, &mut args)?;
     Ok(())
+}
+
+fn parse_args(args: impl Iterator<Item = String>) -> Result<Vec<String>, &'static str> {
+    let mut parsed_args: Vec<String> = Vec::new();
+    let valid_args = std::collections::HashSet::from([
+        "--closed",
+        "--open",
+        "--current",
+        "--complete"
+    ]);
+    for arg in args {
+        if valid_args.contains(arg.trim()) {
+            parsed_args.push(arg[2..].to_string());
+        }
+        
+    }
+    Ok(parsed_args)
+}
+
+fn search_file(contents: &str, parsed_args: &Vec<String>) -> bool {
+    if parsed_args.is_empty() {
+        return true
+    }
+    let mut configs: HashMap<&str, &str> = HashMap::new();
+    let mut lines = contents.lines();
+    while let Some(line) = lines.next() {
+        if line.contains("=============") {
+            break;
+        }
+        let (key, value) = match line.split_once(':') {
+            Some((k, v)) => (k, v),
+            None => ("", ""),
+        };
+        configs.insert(key, value);
+    }
+
+    for status in parsed_args {
+        if configs.get("status").unwrap() == status {
+            return true
+        }
+    }
+    false
 }
 
 fn get_command(mut args: impl Iterator<Item = String>) -> Result<String, &'static str> {
@@ -60,7 +103,8 @@ fn get_command(mut args: impl Iterator<Item = String>) -> Result<String, &'stati
 
 fn run_command(command: &str, args: impl Iterator<Item = String>) -> Result<(), Box<dyn std::error::Error>> {
     match command {
-        "list" => list_tickets()?,
+        "list" => list_tickets(args, "")?,
+        "current" => list_tickets(args, "in_progess")?,
         "new" => new_ticket(args)?,
         "close" => edit_tickets_status(args, "closed")?,
         "open" => edit_tickets_status(args, "open")?,
@@ -73,14 +117,20 @@ fn run_command(command: &str, args: impl Iterator<Item = String>) -> Result<(), 
     Ok(())
 }
 
-fn list_tickets() -> Result<(), Box<dyn std::error::Error>> {
+fn list_tickets(args: impl Iterator<Item = String>, status: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let parsed_args = parse_args(args)?;
     let config = get_config()?;
     let project_tickets_path = format!("{}/{}", ticket_path()?, config.get("project_name").unwrap_or(&get_project_name()?));
     fs::create_dir_all(&project_tickets_path)?;
     let entries = fs::read_dir(&project_tickets_path)?
         .map(|res| res.map(|e| e.path()))
         .collect::<Result<Vec<_>, io::Error>>()?;
-    println!("{:#?}", entries);
+    for entry in entries {
+        let contents = fs::read_to_string(entry.to_str().unwrap())?;
+        if search_file(&contents, &parsed_args) {
+            println!("{}", contents);
+        }
+    }
     Ok(())
 }
 
@@ -112,7 +162,7 @@ fn new_ticket(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn Erro
     let num = get_next_file_name(&project_tickets_path)?;
     let mut file = fs::File::create(format!("{}/{}", project_tickets_path, num))?;
     // TODO: look for a replacement for new lines. Something like writeln!
-    let template = format!("ticket:{}\nstatus:open\n================\n{}\n\n", num, get_content(&mut args)).to_string();
+    let template = format!("ticket:{}\nstatus:open\nowner:jin\n================\n{}\n\n", num, get_content(&mut args)).to_string();
     file.write_all(&template.as_bytes())?;
     Ok(())
 }
