@@ -137,23 +137,21 @@ fn list_tickets(args: impl Iterator<Item = String>, status: &str) -> Result<(), 
 fn get_next_file_name(project_tickets_path: &str) -> Result<String, Box<dyn Error>> {
     fs::create_dir_all(&project_tickets_path)?;
     let mut entries = fs::read_dir(&project_tickets_path)?
-        .map(|res| res.map(|e| e.path()))
+        .map(|res|
+             res.map(|e| e.file_name().to_string_lossy().to_string().parse::<u32>().expect("failed to parse filename while getting next file name") )
+         )
         .collect::<Result<Vec<_>, io::Error>>()?;
     entries.sort();
 
     if entries.len() == 0 {
         return Ok("0".to_string());
     }
-    let last_ticket = match entries.last() {
-        Some(num) => num.file_name(),
+    println!("entries: {:?}", entries);
+    let new_filename = match entries.last() {
+        Some(last_ticket) => last_ticket + 1,
         None => return Err(Box::new(MyError::new("borked"))),
     };
-    let last_ticket_number = match last_ticket {
-        Some(val) => val.to_string_lossy().to_string(),
-        None => "0".to_string(),
-    };
-    let name: u32 = last_ticket_number.parse().unwrap_or(0) + 1;
-    Ok(name.to_string())
+    Ok(new_filename.to_string())
 }
 
 fn new_ticket(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn Error>> {
