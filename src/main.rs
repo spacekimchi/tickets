@@ -146,7 +146,6 @@ fn get_next_file_name(project_tickets_path: &str) -> Result<String, Box<dyn Erro
     if entries.len() == 0 {
         return Ok("0".to_string());
     }
-    println!("entries: {:?}", entries);
     let new_filename = match entries.last() {
         Some(last_ticket) => last_ticket + 1,
         None => return Err(Box::new(MyError::new("borked"))),
